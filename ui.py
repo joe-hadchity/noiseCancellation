@@ -487,7 +487,7 @@ class NoiseCancellerUI(QMainWindow):
             self._error("Record or load audio first.")
             return
         if self.model is None:
-            self._error("Model not loaded.")
+            self._error("Model not Loaded.")
             return
 
         def _run():
