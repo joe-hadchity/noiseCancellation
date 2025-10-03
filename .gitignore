@@ -1,0 +1,115 @@
+0ccc# ---- Node/Vite (web) ----
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/
+web/coverage/
+web/.eslintcache
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+web/pnpm-debug.log*
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python packaging/build
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-wheel-metadata/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing/coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pyre/
+.mypy_cache/
+
+# ---- Environment files ----
+.env
+.env.*
+!.env.example
+web/.env
+web/.env.*
+!web/.env.example
+
+# ---- IDE/editor ----
+.vscode/
+.idea/
+*.code-workspace
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# ---- Project data/models (large, generated) ----
+compressed_dataset/
+sample_dataset/
+noise/
+test_audio/
+logs/
+checkpoints/
+clean.wav
+
+# Common model/artifact formats
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.onnx
+*.joblib
+*.pickle
+*.pkl
+*.npz
+*.npy
+
+# ---- Notebooks ----
+.ipynb_checkpoints/
+
+# ---- Editor swap/backup ----
+*.swp
+*.swo
+*.bak
+
+# ---- TypeScript ----
+*.tsbuildinfo
+
+# ---- Misc ----
+*.log
+.tmp/
+.temp/
