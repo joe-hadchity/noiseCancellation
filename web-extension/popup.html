@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live Denoiser</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Live Denoiser</h1>
+      <label>
+        API Base
+        <input id="apiBase" type="text" placeholder="http://localhost:8000" />
+      </label>
+      <label>
+        Cancellation (%)
+        <input id="cancelPct" type="range" min="0" max="100" step="1" value="50" />
+        <span id="cancelValue">50%</span>
+      </label>
+      <div class="buttons">
+        <button id="grantBtn">Grant Mic</button>
+        <button id="startBtn">Start Live</button>
+        <button id="stopBtn" disabled>Stop</button>
+      </div>
+      <div id="status"></div>
+      <audio id="player" controls></audio>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+  </html>
+
+

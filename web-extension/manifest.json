@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Noise Cancellation Live Denoiser",
+  "version": "0.1.0",
+  "description": "Capture microphone audio, denoise via backend, and play cleaned audio in real-time.",
+  "action": {
+    "default_title": "Live Denoiser",
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "storage"
+  ],
+  
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://*/*",
+    "https://*/*"
+  ]
+}
+
+

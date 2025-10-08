@@ -50,8 +50,20 @@ export default function App() {
   const rawCanvasRef = useRef<HTMLCanvasElement>(null)
   const cleanCanvasRef = useRef<HTMLCanvasElement>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
+  const liveAudioCtxRef = useRef<AudioContext | null>(null)
+  const livePlayCtxRef = useRef<AudioContext | null>(null)
+  const livePlayQueueTimeRef = useRef<number>(0)
+  const liveStreamRef = useRef<MediaStream | null>(null)
+  const liveSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const liveProcessorRef = useRef<ScriptProcessorNode | null>(null)
+  const liveBuffersRef = useRef<Float32Array[]>([])
+  const liveTotalSamplesRef = useRef<number>(0)
+  const liveUploadingRef = useRef<boolean>(false)
+  const [liveOn, setLiveOn] = useState<boolean>(false)
+  const [liveChunkMs, setLiveChunkMs] = useState<number>(2000)
 
   const enableActions = !!file && !predicting && !denoising
+  const disableFileActions = liveOn || predicting || denoising
 
   const onPick: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const f = e.target.files?.[0]
@@ -127,7 +139,7 @@ export default function App() {
       const fd = new FormData()
       fd.append('audio', file)
       fd.append('prop_decrease', String(cancelPct / 100))
-      const res = await axios.post(`${API_BASE}/denoise`, fd, {
+      const res = await axios.post(`${API_BASE}/denoise_chunk`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         responseType: 'blob',
       })
@@ -144,6 +156,224 @@ export default function App() {
     } finally {
       setDenoising(false)
     }
+  }
+
+  // ---- Live denoise helpers ----
+  function floatTo16BitPCM(input: Float32Array): Int16Array {
+    const out = new Int16Array(input.length)
+    for (let i = 0; i < input.length; i++) {
+      const s = Math.max(-1, Math.min(1, input[i]))
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+    }
+    return out
+  }
+
+  function writeString(view: DataView, offset: number, str: string) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
+  }
+
+  function writeWavHeader(view: DataView, sampleRate: number, numSamples: number, numChannels: number) {
+    const bytesPerSample = 2
+    const blockAlign = numChannels * bytesPerSample
+    const byteRate = sampleRate * blockAlign
+    // ChunkID 'RIFF'
+    writeString(view, 0, 'RIFF')
+    // ChunkSize = 36 + Subchunk2Size
+    view.setUint32(4, 36 + numSamples * bytesPerSample, true)
+    // Format 'WAVE'
+    writeString(view, 8, 'WAVE')
+    // Subchunk1ID 'fmt '
+    writeString(view, 12, 'fmt ')
+    // Subchunk1Size 16 for PCM
+    view.setUint32(16, 16, true)
+    // AudioFormat PCM=1
+    view.setUint16(20, 1, true)
+    // NumChannels
+    view.setUint16(22, numChannels, true)
+    // SampleRate
+    view.setUint32(24, sampleRate, true)
+    // ByteRate
+    view.setUint32(28, byteRate, true)
+    // BlockAlign
+    view.setUint16(32, blockAlign, true)
+    // BitsPerSample
+    view.setUint16(34, bytesPerSample * 8, true)
+    // Subchunk2ID 'data'
+    writeString(view, 36, 'data')
+    // Subchunk2Size
+    view.setUint32(40, numSamples * bytesPerSample, true)
+  }
+
+  function encodeWavMono(samples: Float32Array, sampleRate: number): Blob {
+    const pcm = floatTo16BitPCM(samples)
+    const buffer = new ArrayBuffer(44 + pcm.length * 2)
+    const view = new DataView(buffer)
+    writeWavHeader(view, sampleRate, pcm.length, 1)
+    let offset = 44
+    for (let i = 0; i < pcm.length; i++) {
+      view.setInt16(offset, pcm[i], true)
+      offset += 2
+    }
+    return new Blob([buffer], { type: 'audio/wav' })
+  }
+
+  async function uploadLiveChunk(samples: Float32Array, sampleRate: number) {
+    if (liveUploadingRef.current) return
+    liveUploadingRef.current = true
+    try {
+      console.log('[live] sending chunk', { samples: samples.length, sampleRate })
+      const blob = encodeWavMono(samples, sampleRate)
+      const fd = new FormData()
+      fd.append('audio', blob, 'live.wav')
+      fd.append('prop_decrease', String(cancelPct / 100))
+      fd.append('sample_rate', String(sampleRate))
+      const res = await axios.post(`${API_BASE}/denoise_chunk`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        responseType: 'blob',
+        timeout: 15000,
+      })
+      console.log('[live] received chunk response', { size: (res.data as any)?.size ?? 'n/a' })
+      const outBlob = new Blob([res.data], { type: 'audio/wav' })
+      const url = URL.createObjectURL(outBlob)
+      setCleanUrl(url)
+      // Programmatic playback via WebAudio for reliable output
+      const AC = (window as any).AudioContext || (window as any).webkitAudioContext
+      const ctx: AudioContext = livePlayCtxRef.current ?? new AC()
+      livePlayCtxRef.current = ctx
+      const buf = await outBlob.arrayBuffer()
+      try {
+        if (ctx.state === 'suspended') {
+          try { await ctx.resume() } catch {}
+        }
+        const decoded = await ctx.decodeAudioData(buf)
+        const src = ctx.createBufferSource()
+        src.buffer = decoded
+        src.connect(ctx.destination)
+        const startAt = Math.max(ctx.currentTime, livePlayQueueTimeRef.current)
+        src.start(startAt)
+        livePlayQueueTimeRef.current = startAt + decoded.duration
+      } catch (e) {
+        // Fallback: try assigning to audio element if decode fails
+        const el = audioCleanRef.current
+        if (el) {
+          try {
+            const url2 = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))
+            el.src = url2
+            await el.play()
+          } catch {}
+        }
+        setSnackMsg('Playback error: trying fallback output')
+        setSnackSev('info')
+        setSnackOpen(true)
+      }
+      // Notify on first chunk
+      if (!snackOpen) {
+        setSnackMsg('Receiving live denoised audio...')
+        setSnackSev('success')
+        setSnackOpen(true)
+      }
+    } catch (err: any) {
+      console.error('[live] upload error', err)
+      const msg = err?.response?.data?.detail || err?.message || 'Live denoise failed'
+      setSnackMsg(String(msg))
+      setSnackSev('error')
+      setSnackOpen(true)
+    } finally {
+      liveUploadingRef.current = false
+    }
+  }
+
+  function concatForLength(chunks: Float32Array[], required: number): { take: Float32Array, rest: Float32Array[] } {
+    let taken = 0
+    const out = new Float32Array(required)
+    const rest: Float32Array[] = []
+    for (let i = 0; i < chunks.length && taken < required; i++) {
+      const part = chunks[i]
+      const toCopy = Math.min(part.length, required - taken)
+      out.set(part.subarray(0, toCopy), taken)
+      taken += toCopy
+      if (toCopy < part.length) {
+        // leftover
+        rest.push(part.subarray(toCopy))
+        for (let j = i + 1; j < chunks.length; j++) rest.push(chunks[j])
+        return { take: out, rest }
+      }
+    }
+    // used all chunks exactly
+    return { take: out, rest }
+  }
+
+  async function startLive() {
+    if (liveOn) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      liveStreamRef.current = stream
+      const AC = (window as any).AudioContext || (window as any).webkitAudioContext
+      const ac: AudioContext = new AC()
+      liveAudioCtxRef.current = ac
+      const source = ac.createMediaStreamSource(stream)
+      liveSourceRef.current = source
+      const processor = ac.createScriptProcessor(4096, 1, 1)
+      liveProcessorRef.current = processor
+      liveBuffersRef.current = []
+      liveTotalSamplesRef.current = 0
+      source.connect(processor)
+      // Connect through a muted gain node so onaudioprocess fires without audible echo
+      const mute = ac.createGain()
+      mute.gain.value = 0
+      processor.connect(mute)
+      mute.connect(ac.destination)
+      const chunkSamples = Math.floor((liveChunkMs / 1000) * ac.sampleRate)
+      console.log('[live] started', { sampleRate: ac.sampleRate, chunkSamples })
+      processor.onaudioprocess = async (e) => {
+        const input = e.inputBuffer.getChannelData(0)
+        // Log once in a while to confirm it's firing
+        if (Math.random() < 0.02) {
+          console.log('[live] onaudioprocess', { frame: input.length })
+        }
+        liveBuffersRef.current.push(new Float32Array(input))
+        liveTotalSamplesRef.current += input.length
+        if (liveTotalSamplesRef.current >= chunkSamples) {
+          const { take, rest } = concatForLength(liveBuffersRef.current, chunkSamples)
+          liveBuffersRef.current = rest
+          liveTotalSamplesRef.current -= chunkSamples
+          uploadLiveChunk(take, ac.sampleRate)
+        }
+      }
+      setLiveOn(true)
+      setSnackMsg('Live denoise started')
+      setSnackSev('success')
+      setSnackOpen(true)
+    } catch (err: any) {
+      console.error('[live] start error', err)
+      setSnackMsg(err?.message || 'Microphone permission denied')
+      setSnackSev('error')
+      setSnackOpen(true)
+    }
+  }
+
+  function stopLive() {
+    setLiveOn(false)
+    try {
+      liveProcessorRef.current?.disconnect()
+      liveSourceRef.current?.disconnect()
+      liveAudioCtxRef.current?.close()
+      livePlayCtxRef.current?.close()
+    } catch {}
+    liveProcessorRef.current = null
+    liveSourceRef.current = null
+    liveAudioCtxRef.current = null
+    livePlayCtxRef.current = null
+    livePlayQueueTimeRef.current = 0
+    liveBuffersRef.current = []
+    liveTotalSamplesRef.current = 0
+    if (liveStreamRef.current) {
+      for (const t of liveStreamRef.current.getTracks()) t.stop()
+    }
+    liveStreamRef.current = null
+    setSnackMsg('Live denoise stopped')
+    setSnackSev('info')
+    setSnackOpen(true)
   }
 
   const downloadClean = () => {
@@ -263,8 +493,9 @@ export default function App() {
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ mt: 2 }}>
               <Box sx={{ flexGrow: 1 }} />
-              <Button disabled={!enableActions} variant="outlined" onClick={doPredict} startIcon={<GraphicEqIcon />}>Predict</Button>
-              <Button disabled={!enableActions} variant="contained" onClick={doDenoise} startIcon={<CleaningServicesIcon />}>Denoise</Button>
+             
+              <Button disabled={disableFileActions || !file} variant="contained" onClick={doDenoise} startIcon={<CleaningServicesIcon />}>Denoise</Button>
+              <Button variant={liveOn ? 'contained' : 'outlined'} color={liveOn ? 'error' : 'primary'} onClick={liveOn ? stopLive : startLive} startIcon={<GraphicEqIcon />}>{liveOn ? 'Stop Live' : 'Live Denoise'}</Button>
               <Button disabled={!cleanUrl} variant="text" onClick={downloadClean} startIcon={<DownloadIcon />}>Download</Button>
             </Stack>
 
@@ -322,30 +553,7 @@ export default function App() {
           </Card>
         </Stack>
 
-        <Card variant="outlined" sx={{ mt: 3 }}>
-          <CardContent>
-            <Typography variant="subtitle1" gutterBottom>Predicted Noises</Typography>
-            {labels && probs && topIdx ? (
-              <Stack spacing={1}>
-                {labels.map((label, i) => {
-                  const idx = topIdx[i]
-                  const p = typeof idx === 'number' ? probs[idx] : 0
-                  const val = Math.max(0, Math.min(100, (p ?? 0) * 100))
-                  if (val <= 0) return null
-                  return (
-                    <Stack key={`${label}-${i}`} direction="row" spacing={2} alignItems="center">
-                      <Typography sx={{ width: 160 }}>{label}</Typography>
-                      <LinearProgress variant="determinate" value={val} sx={{ flex: 1 }} />
-                      <Typography sx={{ width: 60, textAlign: 'right' }}>{val.toFixed(1)}%</Typography>
-                    </Stack>
-                  )
-                })}
-              </Stack>
-            ) : (
-              <Typography color="text.secondary">Run Predict to see results.</Typography>
-            )}
-          </CardContent>
-        </Card>
+  
       </Container>
 
       <Snackbar open={snackOpen} autoHideDuration={3000} onClose={() => setSnackOpen(false)}

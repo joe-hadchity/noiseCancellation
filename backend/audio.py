@@ -109,6 +109,19 @@ def write_wav_bytes(y: np.ndarray, sr: int) -> bytes:
     return out.getvalue()
 
 
+def denoise_basic(audio: np.ndarray, sr: int, prop_decrease: float = 0.5) -> np.ndarray:
+    """Basic denoiser that does not require reference noises or a model.
+
+    Useful as a fallback for very short live chunks or when the model is unavailable.
+    """
+    try:
+        reduced = nr.reduce_noise(y=audio, sr=sr, prop_decrease=float(prop_decrease), stationary=True)
+        return reduced.astype(np.float32)
+    except Exception:
+        # In worst case, return original audio so user hears something
+        return audio.astype(np.float32)
+
+
 
 
 

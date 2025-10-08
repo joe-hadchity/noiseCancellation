@@ -11,6 +11,7 @@ from .audio import (
     load_audio_from_bytes,
     predict_noises,
     denoise_with_refs,
+    denoise_basic,
     list_reference_noises,
     write_wav_bytes,
     CLASSES,
@@ -70,6 +71,39 @@ async def denoise(audio: UploadFile = File(...), sample_rate: int | None = Form(
     return Response(content=wav_bytes, media_type="audio/wav", headers={
         "Content-Disposition": "attachment; filename=clean.wav"
     })
+
+
+@app.post("/denoise_chunk")
+async def denoise_chunk(audio: UploadFile = File(...), sample_rate: int | None = Form(None), prop_decrease: float = Form(0.5)):
+    """Denoise small live audio chunks. Returns audio/wav without attachment headers.
+
+    Accepts the same payload as /denoise. Designed for short recordings coming from the browser mic.
+    """
+    data = await audio.read()
+    y, sr = load_audio_from_bytes(data, sample_rate)
+    # Simple logs to help debug silent output
+    try:
+        import numpy as _np  # type: ignore
+        _energy_in = float(_np.abs(y).mean()) if y.size else 0.0
+        print(f"/denoise_chunk in: len={y.size} sr={sr} mean|y|={_energy_in:.6f}")
+    except Exception:
+        pass
+    # Prefer reference/model-based denoise; fall back to basic for short/live chunks
+    try:
+        cleaned = denoise_with_refs(y, sr, prop_decrease=prop_decrease)
+        # If silence-like (very low energy), try basic to avoid returning nothing
+        if cleaned.size == 0 or float((abs(cleaned).mean() if cleaned.size else 0.0)) < 1e-5:
+            cleaned = denoise_basic(y, sr, prop_decrease=prop_decrease)
+    except Exception:
+        cleaned = denoise_basic(y, sr, prop_decrease=prop_decrease)
+    wav_bytes = write_wav_bytes(cleaned, sr)
+    try:
+        import numpy as _np  # type: ignore
+        _energy_out = float(_np.abs(cleaned).mean()) if cleaned.size else 0.0
+        print(f"/denoise_chunk out: len={cleaned.size} sr={sr} mean|y|={_energy_out:.6f}")
+    except Exception:
+        pass
+    return Response(content=wav_bytes, media_type="audio/wav")
 
 
 if __name__ == "__main__":
