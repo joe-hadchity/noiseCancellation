@@ -18,7 +18,7 @@ def get_project_root() -> str:
 def get_model_path() -> str:
     # Strictly require a checkpoint .pt file
     root = get_project_root()
-    for fname in ("checkpoint_epoch_30.pt", "checkpoint_epocj_30.pt"):
+    for fname in ("final_model.pt", "final_model.pt"):
         candidate = os.path.join(root, fname)
         if os.path.exists(candidate):
             return candidate
