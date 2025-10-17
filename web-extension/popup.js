@@ -165,14 +165,40 @@
     startBtn.disabled = false;
     stopBtn.disabled = true;
     log('Stopped');
+    chrome.storage.sync.set({ enabled: false });
   }
 
   async function requestMic() {
     try {
-      // Directly trigger the browser's mic prompt via getUserMedia
-      const media = await navigator.mediaDevices.getUserMedia({ audio: true });
-      for (const t of media.getTracks()) t.stop();
-      log('Microphone permission granted');
+      // Ask the active tab (meeting page) to trigger getUserMedia so permission is granted for that origin
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.id) {
+        log('No active tab. Open your meeting page and try again.');
+        return;
+      }
+      chrome.tabs.sendMessage(tab.id, { type: 'REQUEST_MIC' }, async (resp) => {
+        if (chrome.runtime.lastError) {
+          try {
+            await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+            // retry after injection
+            chrome.tabs.sendMessage(tab.id, { type: 'REQUEST_MIC' }, (resp2) => {
+              if (resp2 && resp2.ok) {
+                log('Microphone permission granted');
+              } else {
+                log('Mic permission error: ' + (resp2 && resp2.error ? resp2.error : 'Unknown'));
+              }
+            });
+          } catch (e) {
+            log('Injection error: ' + (e && e.message ? e.message : String(e)));
+          }
+          return;
+        }
+        if (resp && resp.ok) {
+          log('Microphone permission granted');
+        } else {
+          log('Mic permission error: ' + (resp && resp.error ? resp.error : 'Unknown'));
+        }
+      });
     } catch (e) {
       log('Mic permission error: ' + (e && e.message ? e.message : String(e)));
     }
@@ -180,7 +206,10 @@
 
   cancelEl.addEventListener('input', () => { cancelValueEl.textContent = cancelEl.value + '%'; });
   grantBtn.addEventListener('click', requestMic);
-  startBtn.addEventListener('click', start);
+  startBtn.addEventListener('click', async () => {
+    chrome.storage.sync.set({ enabled: true, apiBase: apiBaseEl.value, cancelPct: Number(cancelEl.value) });
+    await start();
+  });
   stopBtn.addEventListener('click', stop);
 
   chrome.storage.sync.get(['apiBase', 'cancelPct'], (data) => {

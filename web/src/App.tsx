@@ -456,7 +456,7 @@ export default function App() {
         <Toolbar>
           <GraphicEqIcon color="primary" sx={{ mr: 1 }} />
           <Typography variant="h6" sx={{ flexGrow: 1 }}>Noise Cancellation Studio</Typography>
-          <Button color="primary" href="https://fastapi.tiangolo.com" target="_blank">API Docs</Button>
+        
         </Toolbar>
       </AppBar>
 
