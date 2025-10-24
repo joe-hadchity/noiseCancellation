@@ -243,7 +243,7 @@ export default function App() {
       const buf = await outBlob.arrayBuffer()
       try {
         if (ctx.state === 'suspended') {
-          try { await ctx.resume() } catch {}
+          try { await ctx.resume() } catch { }
         }
         const decoded = await ctx.decodeAudioData(buf)
         const src = ctx.createBufferSource()
@@ -260,7 +260,7 @@ export default function App() {
             const url2 = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))
             el.src = url2
             await el.play()
-          } catch {}
+          } catch { }
         }
         setSnackMsg('Playback error: trying fallback output')
         setSnackSev('info')
@@ -359,7 +359,7 @@ export default function App() {
       liveSourceRef.current?.disconnect()
       liveAudioCtxRef.current?.close()
       livePlayCtxRef.current?.close()
-    } catch {}
+    } catch { }
     liveProcessorRef.current = null
     liveSourceRef.current = null
     liveAudioCtxRef.current = null
@@ -447,6 +447,7 @@ export default function App() {
     if (cleanUrl) drawWaveform(cleanUrl, cleanCanvasRef.current, '#80cbc4')
   }, [cleanUrl])
 
+
   return (
     <Box>
       <AppBar position="static" color="transparent" sx={{
@@ -454,9 +455,7 @@ export default function App() {
         borderBottom: '1px solid rgba(255,255,255,0.08)'
       }}>
         <Toolbar>
-          <GraphicEqIcon color="primary" sx={{ mr: 1 }} />
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>Noise Cancellation Studio</Typography>
-        
+          <Box component="img" src="/WORD.PNG" alt="AQuiet" sx={{ height: '25px', width: 'auto', mr: 2 }} />
         </Toolbar>
       </AppBar>
 
@@ -493,9 +492,9 @@ export default function App() {
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ mt: 2 }}>
               <Box sx={{ flexGrow: 1 }} />
-             
+
               <Button disabled={disableFileActions || !file} variant="contained" onClick={doDenoise} startIcon={<CleaningServicesIcon />}>Denoise</Button>
-              <Button variant={liveOn ? 'contained' : 'outlined'} color={liveOn ? 'error' : 'primary'} onClick={liveOn ? stopLive : startLive} startIcon={<GraphicEqIcon />}>{liveOn ? 'Stop Live' : 'Live Denoise'}</Button>
+              {/* <Button variant={liveOn ? 'contained' : 'outlined'} color={liveOn ? 'error' : 'primary'} onClick={liveOn ? stopLive : openSimpleVmGui} startIcon={<GraphicEqIcon />}>{liveOn ? 'Stop Live' : 'Live Denoise'}</Button> */}
               <Button disabled={!cleanUrl} variant="text" onClick={downloadClean} startIcon={<DownloadIcon />}>Download</Button>
             </Stack>
 
@@ -553,7 +552,7 @@ export default function App() {
           </Card>
         </Stack>
 
-  
+
       </Container>
 
       <Snackbar open={snackOpen} autoHideDuration={3000} onClose={() => setSnackOpen(false)}
@@ -565,5 +564,3 @@ export default function App() {
     </Box>
   )
 }
-
-
